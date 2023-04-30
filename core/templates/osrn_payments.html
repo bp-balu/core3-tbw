@@ -29,7 +29,7 @@
               <a class="nav-link" href={{tags['proposal2']}} target="_blank">Proposal ({{tags['proposal2_lang']}})</a>
             </nav>
 
-            <h1><center>delegate {{tags['dname']}} Payment History</center></h1>
+            <h1><center>Block Producer {{tags['dname']}} Payment History</center></h1>
 
             <input type="text" id="input" onkeyup="Filter()" placeholder="Search by Address...">
 
@@ -44,9 +44,9 @@
                 <tbody>
                   {% for r in tx_data %}
                     <tr>
-                        <td><a href="{{ tags['explorer'] }}/wallets/{{ r[0] }}" target="_blank">{{ r[0] }}</a></td>
+                        <td><a href="{{ tags['explorer'] }}/wallet/{{ r[0] }}" target="_blank">{{ r[0] }}</a></td>
                         <td>{{ r[1]/100000000 }}</td>
-                       <td><a href="{{ tags['explorer'] }}/transactions/{{ r[2] }}" target="_blank">{{ r[2] }}</a></td>
+                       <td><a href="{{ tags['explorer'] }}/transaction/{{ r[2] }}" target="_blank">{{ r[2] }}</a></td>
                         <td>{{ r[3] }}</td>
                     </tr>
                   {% endfor %}
