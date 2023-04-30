@@ -13,6 +13,7 @@ import logging
 import signal
 import sys
 import time
+import requests
 
 app = Flask(__name__)
 
@@ -21,36 +22,45 @@ def get_round(height):
     mod = divmod(height,network.delegates)
     return (mod[0] + int(mod[1] > 0))
 
+FIRST_BLOCK_UNIX = None
 
-def get_yield(netw_height, dblocks):
-    drounds = dblocks['meta']['count'] #number of forged blocks 
+def get_first_block_unix():
+    global FIRST_BLOCK_UNIX
+    if FIRST_BLOCK_UNIX is None:
+        url = "http://localhost:6003/api/blocks/first"
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            data = response.json()["data"]
+            FIRST_BLOCK_UNIX = data["timestamp"]["unix"]
+        except requests.exceptions.RequestException as e:
+            print(f"Error retrieving first block Unix timestamp: {e}")
+            return None
+    return FIRST_BLOCK_UNIX
 
-    missed = 0
-    forged = 0
-    netw_round = get_round(netw_height)
-    last_forged_round = get_round(dblocks['data'][0]['height'])
+def get_reliability():
+    try:
+        first_block_unix = get_first_block_unix()
 
-    if netw_round > last_forged_round + 1:
-        missed += netw_round - last_forged_round - 1
-    else:
-        forged += 1
+        today_unix = int(time.time()) - first_block_unix
+        thirty_days_ago_unix = today_unix - (30 * 24 * 60 * 60)
 
-    if drounds > 1:
-        for i in range(0, drounds - 1):
-            cur_round = get_round(dblocks['data'][i]['height'])
-            prev_round = get_round(dblocks['data'][i + 1]['height'])
-            if prev_round < cur_round - 1:
-                if cur_round - prev_round - 1 > drounds - missed - forged:
-                    missed += drounds - missed - forged
-                    break
-                else:
-                    missed += cur_round - prev_round - 1
-            else:
-                forged += 1
+        sql.open_connection()
+        query = f"""SELECT COUNT(*) FROM blocks WHERE "timestamp" BETWEEN {thirty_days_ago_unix} AND {today_unix}"""
+        produced_blocks = sql.cursor.execute(query).fetchone()[0]
+        sql.close_connection()
 
-    yield_over_drounds = "{:.2f}".format(round((forged * 100)/(forged + missed)))
-    return yield_over_drounds
+        missed_blocks_url = "http://localhost:6003/api/blocks/missed"
+        params = {"page": 1, "limit": 1, "username": config.delegate}
+        response = requests.get(missed_blocks_url, params=params)
+        total_missed_blocks = response.json()["meta"]["totalCount"]
 
+        total_blocks = produced_blocks + total_missed_blocks
+        reliability = "{:.2f}".format(100 - (total_missed_blocks / total_blocks) * 100)
+        return reliability
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
 
 @app.route('/')
 def index():
@@ -69,7 +79,7 @@ def index():
     stats['voters']   = int(ddata['data']['votesReceived']['voters'])
     stats['rewards']  = ddata['data']['forged']['total']
     stats['approval'] = ddata['data']['votesReceived']['percent']
-    stats['version']  = ddata['data']['version']
+   #stats['version']  = ddata['data']['version']
 
     # get all forged blocks in reverse chronological order, first page, max 100 as default
     dblocks = client.delegates.blocks(config.delegate) 
@@ -79,7 +89,7 @@ def index():
     stats['lastforged_unix'] = dblocks['data'][0]['timestamp']['unix']
     age = divmod(int(time.time() - stats['lastforged_unix']), 60)
     stats['lastforged_ago'] = "{0}:{1}".format(age[0],age[1])
-    stats['forging'] = 'Forging' if stats['rank'] <= network.delegates else 'Standby'
+    stats['forging'] = 'Active' if stats['rank'] <= network.delegates else 'Standby'
 
     sql.open_connection()
     voters = sql.all_voters().fetchall()
@@ -110,7 +120,7 @@ def index():
     stats['behind'] = node_sync_data['data']['blocks']
     stats['height'] = node_sync_data['data']['height']
 
-    stats['yield'] = get_yield(stats['height'], dblocks)
+    stats['reliability'] = get_reliability()
 
     return render_template(poolconfig.pool_template + '_index.html', node=stats, voter=voter_stats, tags=tags)
 
